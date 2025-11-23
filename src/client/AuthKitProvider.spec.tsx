@@ -4,7 +4,6 @@ import { AuthKitProvider, useAuth } from './AuthKitProvider';
 import type { User } from '@workos/authkit-session';
 
 vi.mock('../server/actions', () => ({
-  getAuthAction: vi.fn(),
   refreshAuthAction: vi.fn(),
   checkSessionAction: vi.fn(),
   switchToOrganizationAction: vi.fn(),
@@ -15,9 +14,20 @@ vi.mock('../server/server-functions', () => ({
 }));
 
 // Mock TanStack Router hooks to avoid warnings
+const mockNavigate = vi.fn();
+let mockRouterAuth: any = { user: null };
+
 vi.mock('@tanstack/react-router', () => ({
-  useNavigate: () => vi.fn(),
+  useNavigate: () => mockNavigate,
   useLocation: () => ({ pathname: '/' }),
+}));
+
+vi.mock('@tanstack/react-start', () => ({
+  getGlobalStartContext: () => ({
+    context: {
+      auth: () => mockRouterAuth,
+    },
+  }),
 }));
 
 describe('AuthKitProvider', () => {
@@ -39,15 +49,11 @@ describe('AuthKitProvider', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockRouterAuth = { user: null };
+    mockNavigate.mockReset();
   });
 
   it('renders children', async () => {
-    const { getAuthAction } = await import('../server/actions');
-
-    vi.mocked(getAuthAction).mockResolvedValue({
-      user: null,
-    });
-
     await act(async () => {
       render(
         <AuthKitProvider>
@@ -69,12 +75,6 @@ describe('AuthKitProvider', () => {
   });
 
   it('provides auth context to children', async () => {
-    const { getAuthAction } = await import('../server/actions');
-
-    vi.mocked(getAuthAction).mockResolvedValue({
-      user: null,
-    });
-
     const TestComponent = () => {
       const { loading, user } = useAuth();
       return (
@@ -91,17 +91,12 @@ describe('AuthKitProvider', () => {
       </AuthKitProvider>,
     );
 
-    await waitFor(() => {
-      expect(screen.getByText('Not Loading')).toBeDefined();
-    });
-
+    expect(screen.getByText('Not Loading')).toBeDefined();
     expect(screen.getByText('No User')).toBeDefined();
   });
 
   it('loads user data and provides to context', async () => {
-    const { getAuthAction } = await import('../server/actions');
-
-    vi.mocked(getAuthAction).mockResolvedValue({
+    mockRouterAuth = {
       user: mockUser,
       sessionId: 'session_123',
       organizationId: 'org_123',
@@ -111,7 +106,7 @@ describe('AuthKitProvider', () => {
       entitlements: ['feature_a'],
       featureFlags: ['flag_1'],
       impersonator: undefined,
-    });
+    };
 
     const TestComponent = () => {
       const { user, sessionId, organizationId, role, roles, permissions, entitlements, featureFlags } = useAuth();
@@ -135,10 +130,7 @@ describe('AuthKitProvider', () => {
       </AuthKitProvider>,
     );
 
-    await waitFor(() => {
-      expect(screen.getByText('test@example.com')).toBeDefined();
-    });
-
+    expect(screen.getByText('test@example.com')).toBeDefined();
     expect(screen.getByText('session_123')).toBeDefined();
     expect(screen.getByText('org_123')).toBeDefined();
     expect(screen.getByText('admin')).toBeDefined();
@@ -149,9 +141,7 @@ describe('AuthKitProvider', () => {
   });
 
   it('calls refreshAuth and updates state', async () => {
-    const { getAuthAction, refreshAuthAction } = await import('../server/actions');
-
-    vi.mocked(getAuthAction).mockResolvedValue({ user: null });
+    const { refreshAuthAction } = await import('../server/actions');
 
     vi.mocked(refreshAuthAction).mockResolvedValue({
       user: mockUser,
@@ -175,9 +165,7 @@ describe('AuthKitProvider', () => {
       </AuthKitProvider>,
     );
 
-    await waitFor(() => {
-      expect(screen.getByText('No User')).toBeDefined();
-    });
+    expect(screen.getByText('No User')).toBeDefined();
 
     await act(async () => {
       fireEvent.click(screen.getByText('Refresh'));
@@ -189,13 +177,12 @@ describe('AuthKitProvider', () => {
   });
 
   it('calls signOut', async () => {
-    const { getAuthAction } = await import('../server/actions');
     const { signOut } = await import('../server/server-functions');
 
-    vi.mocked(getAuthAction).mockResolvedValue({
+    mockRouterAuth = {
       user: mockUser,
       sessionId: 'session_123',
-    });
+    };
 
     const TestComponent = () => {
       const { signOut: handleSignOut } = useAuth();
@@ -208,9 +195,7 @@ describe('AuthKitProvider', () => {
       </AuthKitProvider>,
     );
 
-    await waitFor(() => {
-      expect(screen.getByText('Sign Out')).toBeDefined();
-    });
+    expect(screen.getByText('Sign Out')).toBeDefined();
 
     await act(async () => {
       fireEvent.click(screen.getByText('Sign Out'));
@@ -219,11 +204,7 @@ describe('AuthKitProvider', () => {
     expect(signOut).toHaveBeenCalledWith({ data: { returnTo: '/home' } });
   });
 
-  it('handles auth errors gracefully', async () => {
-    const { getAuthAction } = await import('../server/actions');
-
-    vi.mocked(getAuthAction).mockRejectedValue(new Error('Auth failed'));
-
+  it('exposes null user when not authenticated (hydrated)', async () => {
     const TestComponent = () => {
       const { user } = useAuth();
       return <div>{user ? 'Has User' : 'No User'}</div>;
@@ -235,15 +216,12 @@ describe('AuthKitProvider', () => {
       </AuthKitProvider>,
     );
 
-    await waitFor(() => {
-      expect(screen.getByText('No User')).toBeDefined();
-    });
+    expect(screen.getByText('No User')).toBeDefined();
   });
 
   it('handles refreshAuth errors', async () => {
-    const { getAuthAction, refreshAuthAction } = await import('../server/actions');
+    const { refreshAuthAction } = await import('../server/actions');
 
-    vi.mocked(getAuthAction).mockResolvedValue({ user: null });
     vi.mocked(refreshAuthAction).mockRejectedValue(new Error('Refresh failed'));
 
     const TestComponent = () => {
@@ -257,9 +235,7 @@ describe('AuthKitProvider', () => {
       </AuthKitProvider>,
     );
 
-    await waitFor(() => {
-      expect(screen.getByText('Refresh')).toBeDefined();
-    });
+    expect(screen.getByText('Refresh')).toBeDefined();
 
     await act(async () => {
       fireEvent.click(screen.getByText('Refresh'));
@@ -271,10 +247,6 @@ describe('AuthKitProvider', () => {
   });
 
   it('disables session expiry checks when onSessionExpired is false', async () => {
-    const { getAuthAction } = await import('../server/actions');
-
-    vi.mocked(getAuthAction).mockResolvedValue({ user: null });
-
     await act(async () => {
       render(
         <AuthKitProvider onSessionExpired={false}>
@@ -283,41 +255,23 @@ describe('AuthKitProvider', () => {
       );
     });
 
-    await waitFor(() => {
-      expect(screen.getByText('Test')).toBeDefined();
-    });
+    expect(screen.getByText('Test')).toBeDefined();
   });
 
-  it('calls ensureSignedIn when specified in useAuth', async () => {
-    const { getAuthAction } = await import('../server/actions');
-
-    let callCount = 0;
-    vi.mocked(getAuthAction).mockImplementation(async () => {
-      callCount++;
-      if (callCount === 1) {
-        return { user: null };
-      }
-      return {
-        user: mockUser,
-        sessionId: 'session_123',
-      };
-    });
-
+  it('does not refetch when ensureSignedIn is true (hydrated)', async () => {
+    const { checkSessionAction } = await import('../server/actions');
     const TestComponent = () => {
       const { user } = useAuth({ ensureSignedIn: true });
       return <div>{user?.email || 'No User'}</div>;
     };
 
-    await act(async () => {
-      render(
-        <AuthKitProvider>
-          <TestComponent />
-        </AuthKitProvider>,
-      );
-    });
+    render(
+      <AuthKitProvider>
+        <TestComponent />
+      </AuthKitProvider>,
+    );
 
-    await waitFor(() => {
-      expect(callCount).toBeGreaterThan(1);
-    });
+    expect(screen.getByText('No User')).toBeDefined();
+    expect(checkSessionAction).not.toHaveBeenCalled();
   });
 });

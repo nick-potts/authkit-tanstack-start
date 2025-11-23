@@ -1,6 +1,6 @@
 import { createRouter } from '@tanstack/react-router';
 import { routeTree } from './routeTree.gen';
-import type { AuthResult } from '@workos/authkit-tanstack-react-start';
+import type { ClientAuthResult } from '@workos/authkit-tanstack-react-start';
 
 export function getRouter() {
   const router = createRouter({
@@ -8,7 +8,7 @@ export function getRouter() {
     scrollRestoration: true,
     context: {
       // Type-safe auth context from middleware
-      auth: undefined! as () => AuthResult,
+      auth: undefined! as () => ClientAuthResult,
     },
   });
 
@@ -21,6 +21,6 @@ declare module '@tanstack/react-router' {
   }
 
   interface RouterContext {
-    auth: () => AuthResult;
+    auth: () => ClientAuthResult;
   }
 }

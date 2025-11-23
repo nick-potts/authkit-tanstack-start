@@ -1,4 +1,4 @@
-import { createServerFn, getGlobalStartContext } from '@tanstack/react-start';
+import { createIsomorphicFn, createServerFn, getGlobalStartContext } from '@tanstack/react-start';
 import { getRequest } from '@tanstack/react-start/server';
 import { redirect } from '@tanstack/react-router';
 import { getConfig } from '@workos/authkit-session';
@@ -25,6 +25,14 @@ export interface UserInfo {
 export interface NoUserInfo {
   user: null;
 }
+
+export type ClientUserInfo = Omit<UserInfo, 'accessToken'>;
+export type ClientAuthResult = ClientUserInfo | NoUserInfo;
+
+// Internal server fn for legacy RPC fallback
+const getAuthServerFn = createServerFn({ method: 'GET' }).handler((): ClientAuthResult => {
+  return getAuthFromContextSanitized();
+});
 
 /**
  * Signs out the current user by terminating their session.
@@ -111,31 +119,59 @@ export function getAuthFromContext(): UserInfo | NoUserInfo {
   };
 }
 
+function getAuthFromContextSanitized(): ClientAuthResult {
+  const auth = getAuthFromContext();
+  if (!auth.user) return { user: null };
+  return {
+    user: auth.user,
+    sessionId: auth.sessionId,
+    organizationId: auth.organizationId,
+    role: auth.role,
+    roles: auth.roles,
+    permissions: auth.permissions,
+    entitlements: auth.entitlements,
+    featureFlags: auth.featureFlags,
+    impersonator: auth.impersonator,
+  };
+}
+
 /**
- * Get authentication context from the current request.
- * Can be called from route loaders (works during client-side navigation via RPC).
- *
- * @returns The authentication context with user info or null user
- *
- * @example
- * ```typescript
- * // In a route loader
- * import { getAuth } from '@workos/authkit-tanstack-start';
- *
- * export const Route = createFileRoute('/protected')({
- *   loader: async () => {
- *     const auth = await getAuth();
- *     if (!auth.user) {
- *       throw redirect({ to: '/login' });
- *     }
- *     return auth;
- *   },
- * });
- * ```
+ * Get sanitized auth from hydrated router context when available (isomorphic).
+ * Falls back to server context when hydration isn't available.
  */
-export const getAuth = createServerFn({ method: 'GET' }).handler((): UserInfo | NoUserInfo => {
-  return getAuthFromContext();
-});
+export const getAuth = createIsomorphicFn<Promise<ClientAuthResult>>()
+  .server(async () => {
+    return getAuthFromContextSanitized();
+  })
+  .client(async () => {
+    // Client: prefer hydrated router context to avoid initial fetch
+    // @ts-expect-error - Start exposes hydrated context on the client
+    const routerContext = getGlobalStartContext()?.context;
+    const auth = routerContext?.auth?.() as ClientAuthResult | undefined;
+
+    if (auth) {
+      return auth;
+    }
+
+    // Fallback: call server function via RPC
+    return getAuthServerFn();
+  });
+
+/**
+ * Get client-safe auth, preferring hydrated router context on the client.
+ * This is an isomorphic helper that avoids a fetch on the client when context is hydrated.
+ */
+export function getHydratedAuth(): ClientAuthResult {
+  // @ts-expect-error - Start exposes hydrated context on the client
+  const routerContext = getGlobalStartContext()?.context;
+  const auth = routerContext?.auth?.() as ClientAuthResult | undefined;
+
+  if (auth) {
+    return auth;
+  }
+
+  return getAuthFromContextSanitized();
+}
 
 /**
  * Get the authorization URL for WorkOS authentication.

@@ -248,7 +248,7 @@ These functions can be called from route loaders, server functions, or server ro
 
 #### `getAuth()`
 
-Retrieves the current user session.
+Retrieves the current user session. On the server it reads from middleware context; on the client it uses hydrated router context and only falls back to an RPC call when hydration isn’t available.
 
 ```typescript
 const { user } = await getAuth();
@@ -272,7 +272,8 @@ if (user) {
 - `entitlements` - Array of entitlement strings
 - `featureFlags` - Array of feature flag strings
 - `impersonator` - Impersonator details (if being impersonated)
-- `accessToken` - JWT access token
+
+> Access tokens are not returned from `getAuth()` on the client. Use `useAccessToken()` for client token access and refresh handling. On the server, use `getAuthFromContext()` for access to the token.
 
 #### `signOut(options?)`
 

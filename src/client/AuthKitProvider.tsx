@@ -1,51 +1,42 @@
-import { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { checkSessionAction, getAuthAction, refreshAuthAction, switchToOrganizationAction } from '../server/actions.js';
+import { getGlobalStartContext } from '@tanstack/react-start';
+import { checkSessionAction, refreshAuthAction, switchToOrganizationAction } from '../server/actions.js';
 import { signOut } from '../server/server-functions.js';
 import type { AuthContextType, AuthKitProviderProps } from './types.js';
 import type { User, Impersonator } from '../types.js';
+import type { ClientAuthResult } from '../server/server-functions.js';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthKitProvider({ children, onSessionExpired }: AuthKitProviderProps) {
+  const hydratedAuth = (getGlobalStartContext()?.context as { auth?: () => ClientAuthResult } | undefined)?.auth?.();
+  const initialAuth: ClientAuthResult = hydratedAuth ?? { user: null };
   const navigate = useNavigate();
-  const [user, setUser] = useState<User | null>(null);
-  const [sessionId, setSessionId] = useState<string | undefined>(undefined);
-  const [organizationId, setOrganizationId] = useState<string | undefined>(undefined);
-  const [role, setRole] = useState<string | undefined>(undefined);
-  const [roles, setRoles] = useState<string[] | undefined>(undefined);
-  const [permissions, setPermissions] = useState<string[] | undefined>(undefined);
-  const [entitlements, setEntitlements] = useState<string[] | undefined>(undefined);
-  const [featureFlags, setFeatureFlags] = useState<string[] | undefined>(undefined);
-  const [impersonator, setImpersonator] = useState<Impersonator | undefined>(undefined);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(initialAuth.user);
+  const [sessionId, setSessionId] = useState<string | undefined>(initialAuth.user ? initialAuth.sessionId : undefined);
+  const [organizationId, setOrganizationId] = useState<string | undefined>(
+    'organizationId' in initialAuth ? initialAuth.organizationId : undefined,
+  );
+  const [role, setRole] = useState<string | undefined>('role' in initialAuth ? initialAuth.role : undefined);
+  const [roles, setRoles] = useState<string[] | undefined>('roles' in initialAuth ? initialAuth.roles : undefined);
+  const [permissions, setPermissions] = useState<string[] | undefined>(
+    'permissions' in initialAuth ? initialAuth.permissions : undefined,
+  );
+  const [entitlements, setEntitlements] = useState<string[] | undefined>(
+    'entitlements' in initialAuth ? initialAuth.entitlements : undefined,
+  );
+  const [featureFlags, setFeatureFlags] = useState<string[] | undefined>(
+    'featureFlags' in initialAuth ? initialAuth.featureFlags : undefined,
+  );
+  const [impersonator, setImpersonator] = useState<Impersonator | undefined>(
+    'impersonator' in initialAuth ? initialAuth.impersonator : undefined,
+  );
+  const [loading, setLoading] = useState(false);
 
-  const getAuth = useCallback(async ({ ensureSignedIn = false }: { ensureSignedIn?: boolean } = {}) => {
-    setLoading(true);
-    try {
-      const auth = await getAuthAction({ data: { ensureSignedIn } });
-      setUser(auth.user);
-      setSessionId(auth.user ? auth.sessionId : undefined);
-      setOrganizationId('organizationId' in auth ? auth.organizationId : undefined);
-      setRole('role' in auth ? auth.role : undefined);
-      setRoles('roles' in auth ? auth.roles : undefined);
-      setPermissions('permissions' in auth ? auth.permissions : undefined);
-      setEntitlements('entitlements' in auth ? auth.entitlements : undefined);
-      setFeatureFlags('featureFlags' in auth ? auth.featureFlags : undefined);
-      setImpersonator('impersonator' in auth ? auth.impersonator : undefined);
-    } catch (error) {
-      setUser(null);
-      setSessionId(undefined);
-      setOrganizationId(undefined);
-      setRole(undefined);
-      setRoles(undefined);
-      setPermissions(undefined);
-      setEntitlements(undefined);
-      setFeatureFlags(undefined);
-      setImpersonator(undefined);
-    } finally {
-      setLoading(false);
-    }
+  // Compat: expose getAuth but now sync with hydrated context (no initial fetch).
+  const getAuth = useCallback(async () => {
+    return;
   }, []);
 
   const refreshAuth = useCallback(
@@ -134,8 +125,6 @@ export function AuthKitProvider({ children, onSessionExpired }: AuthKitProviderP
   }, []);
 
   useEffect(() => {
-    getAuth();
-
     if (onSessionExpired === false) {
       return;
     }
@@ -176,30 +165,44 @@ export function AuthKitProvider({ children, onSessionExpired }: AuthKitProviderP
       window.removeEventListener('focus', handleVisibilityChange);
       window.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [onSessionExpired, getAuth]);
+  }, [onSessionExpired]);
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        sessionId,
-        organizationId,
-        role,
-        roles,
-        permissions,
-        entitlements,
-        featureFlags,
-        impersonator,
-        loading,
-        getAuth,
-        refreshAuth,
-        signOut: handleSignOut,
-        switchToOrganization: handleSwitchToOrganization,
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
+  const value = useMemo<AuthContextType>(
+    () => ({
+      user,
+      sessionId,
+      organizationId,
+      role,
+      roles,
+      permissions,
+      entitlements,
+      featureFlags,
+      impersonator,
+      loading,
+      getAuth,
+      refreshAuth,
+      signOut: handleSignOut,
+      switchToOrganization: handleSwitchToOrganization,
+    }),
+    [
+      entitlements,
+      featureFlags,
+      getAuth,
+      handleSignOut,
+      handleSwitchToOrganization,
+      impersonator,
+      loading,
+      organizationId,
+      permissions,
+      refreshAuth,
+      role,
+      roles,
+      sessionId,
+      user,
+    ],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth(options: {
@@ -208,12 +211,6 @@ export function useAuth(options: {
 export function useAuth(options?: { ensureSignedIn?: false }): AuthContextType;
 export function useAuth({ ensureSignedIn = false }: { ensureSignedIn?: boolean } = {}) {
   const context = useContext(AuthContext);
-
-  useEffect(() => {
-    if (context && ensureSignedIn && !context.user && !context.loading) {
-      context.getAuth({ ensureSignedIn });
-    }
-  }, [ensureSignedIn, context?.user, context?.loading, context?.getAuth]);
 
   if (!context) {
     throw new Error('useAuth must be used within an AuthKitProvider');

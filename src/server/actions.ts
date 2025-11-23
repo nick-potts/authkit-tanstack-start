@@ -1,7 +1,7 @@
 import { createServerFn } from '@tanstack/react-start';
 import { getRequest } from '@tanstack/react-start/server';
 import { authkit } from './authkit.js';
-import type { UserInfo, NoUserInfo } from './server-functions.js';
+import type { UserInfo, NoUserInfo, ClientUserInfo } from './server-functions.js';
 import { getAuthFromContext } from './server-functions.js';
 
 /**
@@ -22,24 +22,15 @@ export const checkSessionAction = createServerFn({ method: 'GET' }).handler(() =
  */
 export const getAuthAction = createServerFn({ method: 'GET' })
   .inputValidator((options?: { ensureSignedIn?: boolean }) => options)
-  .handler(({ data: options }): Omit<UserInfo, 'accessToken'> | NoUserInfo => {
+  .handler(({ data: options }): ClientUserInfo | NoUserInfo => {
     const auth = getAuthFromContext();
 
     if (!auth.user) {
       return { user: null };
     }
 
-    return {
-      user: auth.user,
-      sessionId: auth.sessionId,
-      organizationId: auth.organizationId,
-      role: auth.role,
-      roles: auth.roles,
-      permissions: auth.permissions,
-      entitlements: auth.entitlements,
-      featureFlags: auth.featureFlags,
-      impersonator: auth.impersonator,
-    };
+    const { accessToken: _ignore, ...clientAuth } = auth;
+    return clientAuth;
   });
 
 /**
@@ -47,7 +38,7 @@ export const getAuthAction = createServerFn({ method: 'GET' })
  */
 export const refreshAuthAction = createServerFn({ method: 'POST' })
   .inputValidator((options?: { ensureSignedIn?: boolean; organizationId?: string }) => options)
-  .handler(async ({ data: options }): Promise<Omit<UserInfo, 'accessToken'> | NoUserInfo> => {
+  .handler(async ({ data: options }): Promise<ClientUserInfo | NoUserInfo> => {
     const auth = getAuthFromContext();
 
     if (!auth.user || !auth.accessToken || !auth.sessionId) {
@@ -76,16 +67,10 @@ export const refreshAuthAction = createServerFn({ method: 'POST' })
       return { user: null };
     }
 
+    const { accessToken: _ignore, claims, ...rest } = result;
     return {
-      user: result.user,
-      sessionId: result.sessionId,
-      organizationId: result.organizationId,
-      role: result.role,
-      roles: result.roles,
-      permissions: result.permissions,
-      entitlements: result.entitlements,
-      featureFlags: result.claims?.feature_flags,
-      impersonator: result.impersonator,
+      ...rest,
+      featureFlags: claims?.feature_flags,
     };
   });
 
@@ -131,7 +116,7 @@ export const refreshAccessTokenAction = createServerFn({ method: 'POST' }).handl
  */
 export const switchToOrganizationAction = createServerFn({ method: 'POST' })
   .inputValidator((data: { organizationId: string }) => data)
-  .handler(async ({ data }): Promise<Omit<UserInfo, 'accessToken'> | NoUserInfo> => {
+  .handler(async ({ data }): Promise<ClientUserInfo | NoUserInfo> => {
     const auth = getAuthFromContext();
 
     if (!auth.user || !auth.accessToken) {
@@ -159,15 +144,9 @@ export const switchToOrganizationAction = createServerFn({ method: 'POST' })
       return { user: null };
     }
 
+    const { accessToken: _ignore, claims, ...rest } = result;
     return {
-      user: result.user,
-      sessionId: result.sessionId,
-      organizationId: result.organizationId,
-      role: result.role,
-      roles: result.roles,
-      permissions: result.permissions,
-      entitlements: result.entitlements,
-      featureFlags: result.claims?.feature_flags,
-      impersonator: result.impersonator,
+      ...rest,
+      featureFlags: claims?.feature_flags,
     };
   });

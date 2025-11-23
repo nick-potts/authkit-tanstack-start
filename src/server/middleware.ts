@@ -1,6 +1,7 @@
 import { createMiddleware } from '@tanstack/react-start';
 import { authkit } from './authkit.js';
 import { validateConfig } from '@workos/authkit-session';
+import type { ClientAuthResult } from './server-functions.js';
 
 // Track if we've validated config to avoid redundant checks
 let configValidated = false;
@@ -33,10 +34,28 @@ export const authkitMiddleware = () => {
     // authkit.withAuth handles token validation, refresh, and session decryption
     const authResult = await authkit.withAuth(args.request);
 
-    // Store auth result in global context for routes and server functions to access
+    // Build a client-safe, serializable auth payload for hydration
+    const hydratedAuth: ClientAuthResult = authResult.user
+      ? {
+          user: authResult.user,
+          sessionId: authResult.sessionId!,
+          organizationId: authResult.organizationId,
+          role: authResult.role,
+          roles: authResult.roles,
+          permissions: authResult.permissions,
+          entitlements: authResult.entitlements,
+          featureFlags: authResult.claims?.feature_flags,
+          impersonator: authResult.impersonator,
+        }
+      : { user: null };
+
+    // Store full auth (with access token) in server context; hydrate sanitized auth to client
     return args.next({
       context: {
         auth: () => authResult,
+      },
+      sendContext: {
+        auth: () => hydratedAuth,
       },
     });
   });

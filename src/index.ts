@@ -9,6 +9,8 @@ export {
   // Types
   type UserInfo,
   type NoUserInfo,
+  type ClientUserInfo,
+  type ClientAuthResult,
   type GetAuthURLOptions,
   // Authentication functions
   getAuth,

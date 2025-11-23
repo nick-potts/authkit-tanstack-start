@@ -101,7 +101,6 @@ describe('Server Functions', () => {
       expect(result).toEqual({
         user: mockUser,
         sessionId: 'session_123',
-        accessToken: 'access_token',
         organizationId: 'org_123',
         role: 'member',
         permissions: ['read'],
